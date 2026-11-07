@@ -1,0 +1,331 @@
+// launcher_core.zu - accounts, the Roblox web API, version scanning and launching.
+// Nothing here knows about the page except status(), which does nothing without a window.
+use "launcher.zh";
+use "http.zu";
+use "json.zu";
+use "FileSystem.zu";
+use "random.zu";
+use "webview.zu";
+
+// the addresses of the Roblox API
+let API_AUTH = "https://auth.roblox.com";
+let API_USERS = "https://users.roblox.com";
+let API_GAMES = "https://games.roblox.com";
+
+let g_accounts: list = [];
+let g_versions: list = [];
+let g_accounts_path = "";
+let g_versions_dir = "";
+
+// ---- helpers ------------------------------------------------------------------------
+// the folder this program is in
+zusdef exe_folder() -> txt {
+    let buf = zusbuf(8192);
+    zusdll("kernel32.dll:GetModuleFileNameW", [0, buf, 4000]);
+    let path = zuspeekwide(buf);
+    zusfree(buf);
+    return parent_folder(path);
+}
+
+zusdef local_app_data() -> txt {
+    let buf = zusbuf(8192);
+    zusdll("kernel32.dll:GetEnvironmentVariableW", ["LOCALAPPDATA", buf, 4000]);
+    let path = zuspeekwide(buf);
+    zusfree(buf);
+    return path;
+}
+
+// run JavaScript in the page, if there still is one
+zusdef ui(js: txt) {
+    if _wv_alive() { webview_eval(js); }
+}
+
+// keep the window alive for ms milliseconds, the way Sleep() did on the C thread
+zusdef pause(ms: num) {
+    let start = zusclock();
+    cycle zusclock() - start < ms {
+        if _wv_alive() {
+            webview_idle(20);
+            _wv_collect();
+        } else {
+            zussleep(20);
+        }
+    }
+}
+
+zusdef status(message: txt, kind: txt) {
+    ui("showStatus('launch-status'," + json_text(message) + "," + json_text(kind) + ")");
+}
+
+zusdef strip_warning(cookie: txt) -> txt {
+    let prefix = "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-to-your-account--|_";
+    if zusmatch(cookie, prefix, 0) { return zusslice(cookie, len(prefix), len(cookie)); }
+    return cookie;
+}
+
+// only the digits of a txt
+zusdef digits_of(t: txt) -> txt {
+    let parts: list = [];
+    let i = 0;
+    cycle i < len(t) and len(parts) < 18 {          // 18 digits always fit a num
+        let c = ord(t[i]);
+        if c >= 48 and c <= 57 { push(parts, t[i]); }
+        i = i + 1;
+    }
+    return join(parts, "");
+}
+
+// ---- HTTP ---------------------------------------------------------------------------
+// status 0 means no answer at all
+zusdef roblox_request(method: txt, url: txt, cookie: txt, csrf: txt) -> HttpResponse {
+    let head = "Content-Type: application/json\r\nAccept: application/json\r\n" +
+        "Referer: https://www.roblox.com/\r\nOrigin: https://www.roblox.com\r\n";
+    if cookie != "" { head = head + "Cookie: .ROBLOSECURITY=" + cookie + "\r\n"; }
+    if csrf != "" { head = head + "X-CSRF-TOKEN: " + csrf + "\r\n"; }
+    let answer = HttpResponse(0, "");
+    attempt {
+        answer = http_request(method, url, "", head);
+    } rescue why {
+        answer = HttpResponse(0, "");
+    }
+    return answer;
+}
+
+// ---- accounts -----------------------------------------------------------------------
+zusdef accounts_add(name: txt, cookie: txt, home: txt) {
+    let i = 0;
+    cycle i < len(g_accounts) {
+        let a: Account = g_accounts[i];
+        if a.name == name {
+            a.cookie = cookie;
+            if home != "" { a.home_place = home; }
+            g_accounts[i] = a;
+            return;
+        }
+        i = i + 1;
+    }
+    if len(g_accounts) >= MAX_ACCOUNTS { return; }
+    push(g_accounts, Account(name, cookie, home));
+}
+
+zusdef accounts_remove(name: txt) {
+    let kept: list = [];
+    let i = 0;
+    cycle i < len(g_accounts) {
+        let a: Account = g_accounts[i];
+        if a.name != name { push(kept, a); }
+        i = i + 1;
+    }
+    g_accounts = kept;
+}
+
+zusdef accounts_get_cookie(name: txt) -> txt {
+    let i = 0;
+    cycle i < len(g_accounts) {
+        let a: Account = g_accounts[i];
+        if a.name == name { return a.cookie; }
+        i = i + 1;
+    }
+    return "";
+}
+
+zusdef accounts_set_home(name: txt, home: txt) {
+    let i = 0;
+    cycle i < len(g_accounts) {
+        let a: Account = g_accounts[i];
+        if a.name == name {
+            a.home_place = home;
+            g_accounts[i] = a;
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+// the same accounts.json the C and C++ launchers use
+zusdef accounts_save() {
+    zuswrite(g_accounts_path, json_text({"accounts": g_accounts}));
+}
+
+// a txt field of a dict from a file, "" if it is missing
+zusdef text_field(d, key: txt) -> txt {
+    if has(d, key) and zustype(d[key]) == "txt" {
+        let value: txt = d[key];
+        return value;
+    }
+    return "";
+}
+
+zusdef accounts_load() {
+    g_accounts = [];
+    if not zusexists(g_accounts_path) { return; }
+    attempt {
+        let items = json_parse(zusread(g_accounts_path))["accounts"];
+        let i = 0;
+        cycle i < len(items) and len(g_accounts) < MAX_ACCOUNTS {
+            let item = items[i];
+            push(g_accounts, Account(text_field(item, "name"), text_field(item, "cookie"), text_field(item, "home_place")));
+            i = i + 1;
+        }
+    } rescue why {
+        g_accounts = [];                            // an unreadable file: start empty, like C
+    }
+}
+
+// ---- Roblox API ---------------------------------------------------------------------
+// the account's name, "" if the cookie is not valid
+zusdef fetch_username(cookie: txt) -> txt {
+    let r = roblox_request("GET", API_USERS + "/v1/users/authenticated", cookie, "");
+    if r.status != 200 { return ""; }
+    let name = "";
+    attempt {
+        name = text_field(json_parse(r.body), "name");
+    } rescue why {
+        name = "";
+    }
+    return name;
+}
+
+// a one-time ticket: the first request only earns the CSRF token. "" if it fails
+zusdef fetch_auth_ticket(cookie: txt) -> txt {
+    let url = API_AUTH + "/v1/authentication-ticket";
+    roblox_request("POST", url, cookie, "");
+    let csrf = http_header("x-csrf-token");
+    if csrf == "" { return ""; }
+    roblox_request("POST", url, cookie, csrf);
+    return http_header("rbx-authentication-ticket");
+}
+
+zusdef fetch_place_name(place_id: num) -> txt {
+    let fallback = "Place " + txt(place_id);
+    let r = roblox_request("GET", API_GAMES + "/v1/games/multiget-place-details?placeIds=" + txt(place_id), "", "");
+    if r.status != 200 { return fallback; }
+    let name = "";
+    attempt {
+        name = text_field(json_parse(r.body)[0], "name");
+    } rescue why {
+        name = "";
+    }
+    if name == "" { return fallback; }
+    return name;
+}
+
+// ---- versions -----------------------------------------------------------------------
+zusdef versions_scan() {
+    g_versions = [];
+    let names = list_folder(g_versions_dir);
+    let i = 0;
+    cycle i < len(names) and len(g_versions) < MAX_VERSIONS {
+        let name: txt = names[i];
+        let path = join_path(g_versions_dir, name);
+        if name[0] != "." and is_folder(path) and zusexists(join_path(path, "RobloxPlayerBeta.exe")) {
+            push(g_versions, VersionEntry(name, path));
+        }
+        i = i + 1;
+    }
+}
+
+// ---- launch -------------------------------------------------------------------------
+zusdef roblox_launch(exe: txt, ticket: txt, place_id: num) -> flag {
+    let ts = zusnow();
+    let tracker = ts * 1000 + random_int(1, 999);
+    let cmd = "";
+    if place_id > 0 {
+        let raw_url = "https://assetgame.roblox.com/game/PlaceLauncher.ashx" +
+            "?request=RequestGame" +
+            "&browserTrackerId=" + txt(tracker) +
+            "&placeId=" + txt(place_id) +
+            "&isPlayTogetherGame=false";
+        cmd = "\"" + exe + "\" roblox-player:1+launchmode:play+gameinfo:" + ticket +
+            "+launchtime:" + txt(ts) +
+            "+placelauncherurl:" + url_encode(raw_url) +
+            "+browsertrackerid:" + txt(tracker) +
+            "+robloxLocale:en_us+gameLocale:en_us+channel:";
+    } else {
+        cmd = "\"" + exe + "\" --app -a https://auth.roblox.com/v1/authentication-ticket/redeem -t " +
+            ticket + " --launchtime=" + txt(ts);
+    }
+    let work_dir = parent_folder(exe);
+
+    let debug_path = join_path(exe_folder(), "launch_debug.txt");
+    let mode = "HOME (--app)";
+    if place_id > 0 { mode = "GAME JOIN (protocol)"; }
+    zuswrite(debug_path, "PLACE_ID:  " + txt(place_id) + "\nMODE:      " + mode + "\nEXE:       " + exe +
+        "\nWORK:      " + work_dir + "\nCMD:       " + cmd + "\n");
+
+    let si = zusbuf(104);                           // STARTUPINFOW
+    let pi = zusbuf(24);                            // PROCESS_INFORMATION
+    zusdll("msvcrt.dll:memset", [si, 0, 104]);
+    zusdll("msvcrt.dll:memset", [pi, 0, 24]);
+    zuspoke(si, 4, 104);
+    // 512 = CREATE_NEW_PROCESS_GROUP
+    let started = zusdll("kernel32.dll:CreateProcessW", [0, cmd, 0, 0, 0, 512, 0, work_dir, si, pi]) % 4294967296 != 0;
+    let error = 0;
+    if not started { error = zusdll("kernel32.dll:GetLastError", []) % 4294967296; }
+
+    let answer = "NO";
+    if started { answer = "YES"; }
+    zusappend(debug_path, "LAUNCHED:  " + answer + " (err=" + txt(error) + ")\n");
+    if started {
+        pause(2000);
+        let process = zuspeek(pi, 8);
+        let code = zusbuf(8);
+        zuspoke(code, 4, 0);
+        zusdll("kernel32.dll:GetExitCodeProcess", [process, code]);
+        let exit_code = zuspeek(code, 4);
+        zusfree(code);
+        let state = "exited";
+        if exit_code == 259 { state = "still running"; }    // STILL_ACTIVE
+        zusappend(debug_path, "EXIT_CODE: " + state + " (" + txt(exit_code) + ")\n");
+        zusdll("kernel32.dll:CloseHandle", [process]);
+        zusdll("kernel32.dll:CloseHandle", [zuspeek(pi + 8, 8)]);
+    }
+    zusfree(si);
+    zusfree(pi);
+    return started;
+}
+
+// the whole launch, telling the page how it goes. The C version ran this on a thread;
+// ZUST has one thread, so the window waits while a web request is under way.
+zusdef launch_failed(why: txt) {
+    ui("onLaunchResult(" + json_text({"ok": false, "error": why}) + ")");
+}
+
+zusdef do_launch(account: txt, place: txt, version_path: txt) {
+    let cookie = accounts_get_cookie(account);
+    if cookie == "" {
+        launch_failed("No account selected");
+        return;
+    }
+    status("Getting auth ticket…", "");
+    pause(300);
+    let ticket = fetch_auth_ticket(cookie);
+    if ticket == "" {
+        launch_failed("Auth ticket failed");
+        return;
+    }
+    status("Auth ticket acquired", "ok");
+    pause(400);
+
+    let place_id = 0;
+    let clean = digits_of(place);
+    if clean != "" { place_id = num(clean); }
+    if place_id > 0 {
+        status("Joining game " + txt(place_id) + "…", "");
+    } else {
+        status("No game ID — launching home…", "");
+    }
+    pause(400);
+    status("Launching Roblox…", "");
+    pause(200);
+
+    if not roblox_launch(join_path(version_path, "RobloxPlayerBeta.exe"), ticket, place_id) {
+        launch_failed("RobloxPlayerBeta.exe failed to start");
+        return;
+    }
+    if place_id > 0 {
+        ui("onLaunchResult(" + json_text({"ok": true, "mode": "game", "name": fetch_place_name(place_id), "placeId": place_id}) + ")");
+    } else {
+        ui("onLaunchResult(" + json_text({"ok": true, "mode": "home"}) + ")");
+    }
+}

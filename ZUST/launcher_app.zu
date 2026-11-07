@@ -1,0 +1,217 @@
+// launcher_app.zu - the window: the page, and what it can ask for.
+// Each page call is a JSON message {"call": name, "args": [...]}, answered with JSON.
+use "launcher_core.zu";
+
+zusdef page() -> txt {
+    let parts = [
+        "<!DOCTYPE html>",
+        "<html><head><meta charset=\"UTF-8\"><title>Roblox Launcher</title>",
+        "<style>",
+        "*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}",
+        ":root{--bg:#080808;--surface:#111;--surface2:#161616;--border:#222;--border2:#2a2a2a;",
+        "--text:#f0f0f0;--sub:#888;--accent:#fff;--danger:#e05555;--ok:#4caf50}",
+        "html{-webkit-user-select:none;user-select:none}",
+        "body{font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;color:var(--text);",
+        "background:var(--bg);height:100vh;overflow:hidden;display:flex;flex-direction:column}",
+        ".titlebar{height:32px;background:var(--surface);display:flex;align-items:center;",
+        "padding:0 12px;font-size:11px;color:var(--sub);border-bottom:1px solid var(--border);",
+        "-webkit-app-region:drag}.titlebar span{font-weight:600;color:var(--text);margin-right:6px}",
+        ".wrap{display:flex;flex:1;overflow:hidden}",
+        ".side{width:180px;min-width:180px;background:var(--surface);border-right:1px solid var(--border);",
+        "display:flex;flex-direction:column;padding:8px}",
+        ".side h3{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.8px;",
+        "margin-bottom:6px;padding:0 4px}",
+        ".pill{padding:7px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:3px;",
+        "color:var(--sub);transition:all .15s;border:1px solid transparent}",
+        ".pill:hover{background:var(--surface2);color:var(--text)}",
+        ".pill.active{background:var(--surface2);color:var(--accent);font-weight:600;",
+        "border:1px solid var(--border2)}",
+        ".pill .x{float:right;opacity:0;font-size:10px;color:var(--danger);cursor:pointer;",
+        "padding:0 4px;transition:opacity .15s}.pill:hover .x{opacity:1}",
+        "#add-area{margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}",
+        "#add-btn{width:100%;padding:7px;border:1px dashed var(--border2);border-radius:6px;",
+        "background:none;color:var(--sub);cursor:pointer;font-size:12px;transition:all .15s}",
+        "#add-btn:hover{border-color:var(--accent);color:var(--text)}",
+        "#cookie-input{width:100%;padding:7px;border:1px solid var(--border2);border-radius:6px;",
+        "background:var(--bg);color:var(--text);font-size:12px;margin-top:6px;display:none;outline:none}",
+        "#cookie-input:focus{border-color:var(--accent)}",
+        ".main{flex:1;padding:20px 24px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}",
+        ".row{display:flex;gap:10px;align-items:center}",
+        "label{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.6px;min-width:70px}",
+        "select,input[type=text]{flex:1;padding:8px 10px;border:1px solid var(--border);",
+        "border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;outline:none}",
+        "select:focus,input[type=text]:focus{border-color:var(--accent)}",
+        "#launch-btn{padding:10px 28px;border:none;border-radius:8px;background:var(--accent);",
+        "color:var(--bg);font-weight:700;font-size:14px;cursor:pointer;transition:all .15s;",
+        "align-self:flex-start}",
+        "#launch-btn:hover{opacity:.85}#launch-btn:active{transform:scale(.97)}",
+        ".status{font-size:12px;min-height:18px;padding:4px 0}",
+        ".status.ok{color:var(--ok)}.status.err{color:var(--danger)}",
+        "</style></head><body>",
+        "<div class=\"titlebar\"><span>Roblox Launcher</span> zust edition</div>",
+        "<div class=\"wrap\">",
+        "<div class=\"side\"><h3>Accounts</h3><div id=\"acc-list\"></div>",
+        "<div id=\"add-area\"><button id=\"add-btn\" onclick=\"toggleAdd()\">+ Add Account</button>",
+        "<input id=\"cookie-input\" type=\"text\" placeholder=\"Paste .ROBLOSECURITY cookie\"",
+        " onkeydown=\"if(event.key==='Enter')submitCookie()\"></div></div>",
+        "<div class=\"main\">",
+        "<div class=\"row\"><label>Version</label>",
+        "<select id=\"ver-select\"><option value=\"\">Loading...</option></select></div>",
+        "<div class=\"row\"><label>Place ID</label>",
+        "<input type=\"text\" id=\"place-input\" placeholder=\"e.g. 6654918151 (blank = home)\"></div>",
+        "<button id=\"launch-btn\" onclick=\"doLaunch()\">Launch</button>",
+        "<div id=\"launch-status\" class=\"status\"></div>",
+        "</div></div>",
+        "<script>",
+        "function call(name,args){return zust.send(JSON.stringify({call:name,args:args})).then(JSON.parse)}",
+        "function get_state(){return call('get_state',[])}",
+        "function add_account(c,h){return call('add_account',[c,h])}",
+        "function remove_account(n){return call('remove_account',[n])}",
+        "function set_home_place(n,h){return call('set_home_place',[n,h])}",
+        "function versions_scan(){return call('versions_scan',[])}",
+        "function launch(a,p,v){return call('launch',[a,p,v])}",
+        "let selAcc=null,_vers=[];",
+        "function showStatus(id,msg,cls){const el=document.getElementById(id);if(!el)return;",
+        "el.textContent=msg;el.className='status'+(cls?' '+cls:'')}",
+        "window.onLaunchResult=function(r){",
+        "if(!r.ok){showStatus('launch-status','Error: '+(r.error||'unknown'),'err');return;}",
+        "if(r.mode==='game')showStatus('launch-status','Launched: '+(r.name||r.placeId),'ok');",
+        "else showStatus('launch-status','Launched to home','ok');};",
+        "function renderAccounts(accs){const el=document.getElementById('acc-list');el.innerHTML='';",
+        "accs.forEach(a=>{const d=document.createElement('div');",
+        "d.className='pill'+(selAcc===a.name?' active':'');",
+        "d.innerHTML=a.name+'<span class=\"x\" onclick=\"event.stopPropagation();removeAcc(\\''+",
+        "a.name.replace(/'/g,\"\\\\'\")+'\\')\">\\u00d7</span>';",
+        "d.onclick=()=>pickAcc(a.name);el.appendChild(d)})}",
+        "function pickAcc(n){selAcc=n;document.querySelectorAll('.pill').forEach(p=>{",
+        "p.classList.toggle('active',p.textContent.replace('\\u00d7','').trim()===n)})}",
+        "async function removeAcc(n){await remove_account(n);loadState()}",
+        "function toggleAdd(){const i=document.getElementById('cookie-input');",
+        "i.style.display=i.style.display==='none'?'block':'none';if(i.style.display==='block')i.focus()}",
+        "async function submitCookie(){const i=document.getElementById('cookie-input');",
+        "const c=i.value.trim();if(!c)return;showStatus('launch-status','Adding account\\u2026','');",
+        "const r=await add_account(c,'');if(!r.ok){showStatus('launch-status','Error: '+(r.error||''),'err');return;}",
+        "i.value='';i.style.display='none';showStatus('launch-status','Added: '+r.name,'ok');",
+        "selAcc=r.name;loadState()}",
+        "function renderVersions(vers){_vers=vers;const s=document.getElementById('ver-select');s.innerHTML='';",
+        "if(!vers.length){s.innerHTML='<option value=\"\">No versions found</option>';return;}",
+        "vers.forEach((v,i)=>{const o=document.createElement('option');o.value=i;o.textContent=v.name;s.appendChild(o)})}",
+        "async function loadState(){const st=await get_state();renderAccounts(st.accounts);",
+        "renderVersions(st.versions);if(st.accounts.length&&!selAcc)pickAcc(st.accounts[0].name)}",
+        "async function doLaunch(){if(!selAcc){showStatus('launch-status','Select an account first','err');return;}",
+        "const idx=document.getElementById('ver-select').value;const ver=_vers[parseInt(idx)];",
+        "if(!ver){showStatus('launch-status','Select a version first','err');return;}",
+        "const raw=document.getElementById('place-input').value.trim();",
+        "const place=(raw&&/^\\d+$/.test(raw))?raw:'home';",
+        "showStatus('launch-status','Starting\\u2026','');await launch(selAcc,place,ver.path)}",
+        "loadState();",
+        "</script></body></html>"
+    ];
+    return join(parts, "");
+}
+
+zusdef get_state() -> txt {
+    let names: list = [];
+    let i = 0;
+    cycle i < len(g_accounts) {
+        let a: Account = g_accounts[i];
+        push(names, {"name": a.name, "home_place": a.home_place});   // cookies stay here
+        i = i + 1;
+    }
+    return json_text({"accounts": names, "versions": g_versions});
+}
+
+// the text argument number i of a page call
+zusdef arg(args, i: num) -> txt {
+    if i < len(args) and zustype(args[i]) == "txt" {
+        let value: txt = args[i];
+        return value;
+    }
+    return "";
+}
+
+zusdef add_account(cookie: txt, home: txt) -> txt {
+    let clean = strip_warning(cookie);
+    let name = fetch_username(clean);
+    if name == "" { return json_text({"ok": false, "error": "Invalid cookie"}); }
+    accounts_add(name, clean, home);
+    accounts_save();
+    return json_text({"ok": true, "name": name});
+}
+
+// answer one message from the page
+zusdef app_handle(message: txt) {
+    let what = "";
+    let args: list = [];
+    attempt {
+        let request = json_parse(message);
+        what = request["call"];
+        args = request["args"];
+    } rescue why {
+        what = "";
+    }
+    if what == "get_state" {
+        webview_reply(get_state());
+    } orif what == "add_account" {
+        webview_reply(add_account(arg(args, 0), arg(args, 1)));
+    } orif what == "remove_account" {
+        accounts_remove(arg(args, 0));
+        accounts_save();
+        webview_reply("{\"ok\":true}");
+    } orif what == "set_home_place" {
+        accounts_set_home(arg(args, 0), arg(args, 1));
+        accounts_save();
+        webview_reply("{\"ok\":true}");
+    } orif what == "versions_scan" {
+        versions_scan();
+        webview_reply(get_state());
+    } orif what == "launch" {
+        webview_reply("{\"ok\":true}");
+        do_launch(arg(args, 0), arg(args, 1), arg(args, 2));
+    } else {
+        webview_reply("{\"ok\":false,\"error\":\"unknown request\"}");
+    }
+}
+
+// the smallest size the window can be dragged to
+let g_old_proc = 0;
+let g_min_width = 0;
+let g_min_height = 0;
+zusdef window_proc(hwnd: num, message: num, wparam: num, lparam: num) -> num {
+    if message == 36 {                              // WM_GETMINMAXINFO
+        zuspoke(lparam + 24, 4, g_min_width);
+        zuspoke(lparam + 28, 4, g_min_height);
+        return 0;
+    }
+    return zusdll("user32.dll:CallWindowProcW", [g_old_proc, hwnd, message, wparam, lparam]);
+}
+
+zusdef set_min_size(width: num, height: num) {
+    let scale = zusdll("user32.dll:GetDpiForSystem", []) % 4294967296;
+    if scale == 0 { scale = 96; }
+    g_min_width = width * scale / 96;
+    g_min_height = height * scale / 96;
+    // -4 = GWLP_WNDPROC
+    g_old_proc = zusdll("user32.dll:SetWindowLongPtrW", [_wv_hwnd, -4, zuscallback(@window_proc)]);
+}
+
+zusdef app_open() {
+    seed(zusnow());
+    http_set_agent("RobloxLauncher/1.0");
+    http_no_cookies();
+    if g_accounts_path == "" { g_accounts_path = join_path(exe_folder(), "accounts.json"); }
+    if g_versions_dir == "" { g_versions_dir = local_app_data() + "\\Roblox\\Versions"; }
+    accounts_load();
+    versions_scan();
+    webview_open("Roblox Launcher", page(), 900, 600);
+    set_min_size(680, 450);
+}
+
+zusdef app_run() {
+    app_open();
+    cycle true {
+        let message = webview_next();
+        if message == "closed" { stop; }
+        app_handle(message);
+    }
+}

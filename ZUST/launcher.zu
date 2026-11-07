@@ -1,0 +1,5 @@
+// launcher.zu - Roblox Launcher in ZUST. Build it with build.cmd, or:
+//     gzu launcher.zu --gui -o RobloxLauncher.exe
+use "launcher_app.zu";
+
+app_run();
