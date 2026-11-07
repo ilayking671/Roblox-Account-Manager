@@ -1,8 +1,3 @@
-"""
-Roblox Launcher — Python / pywebview
-pip install pywebview requests
-"""
-
 import webview
 import requests
 import json
@@ -326,7 +321,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;color:var(--text
 
 .wrap{display:flex;flex:1;overflow:hidden}
 
-/* sidebar */
 .side{width:180px;min-width:180px;background:var(--surface);border-right:1px solid var(--border);
   display:flex;flex-direction:column;padding:8px}
 .side h3{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.8px;
@@ -349,7 +343,6 @@ body{font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;color:var(--text
   outline:none}
 #cookie-input:focus{border-color:var(--accent)}
 
-/* main */
 .main{flex:1;padding:20px 24px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
 
 .row{display:flex;gap:10px;align-items:center}
@@ -369,7 +362,6 @@ select:focus,input[type=text]:focus{border-color:var(--accent)}
 .status.ok{color:var(--ok)}
 .status.err{color:var(--danger)}
 
-/* history */
 .hist-title{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.8px;
   margin-top:8px}
 .hist-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}

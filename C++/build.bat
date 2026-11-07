@@ -1,5 +1,4 @@
 @echo off
-:: re-launch inside cmd /k so the window always stays open
 if "%~1"=="--run" goto :run
 cmd /k "%~f0" --run
 exit
@@ -24,7 +23,6 @@ echo   C EDITION  ^|  BUILD SYSTEM
 echo  ----------------------------------------------------------------
 echo.
 
-:: ── auto-init VS x64 environment ────────────────────────────────────────────
 where cl >nul 2>&1
 if errorlevel 1 (
     echo  [..] cl.exe not in PATH -- locating Visual Studio...
@@ -51,13 +49,11 @@ if errorlevel 1 (
 )
 echo.
 
-:: ── create Dependecies folder ────────────────────────────────────────────────
 if not exist "Dependecies\" mkdir Dependecies
 
 echo  ---- DEPENDENCIES --------------------------------------------------
 echo.
 
-:: ── webview ─────────────────────────────────────────────────────────────────
 if not exist "Dependecies\webview\" (
     echo  [1/3]  webview            downloading...
     curl -L -o Dependecies\webview.zip "https://github.com/webview/webview/archive/refs/heads/master.zip" --silent --show-error
@@ -72,7 +68,6 @@ if not exist "Dependecies\webview\" (
     echo  [1/3]  webview            cached.
 )
 
-:: ── WebView2 SDK ─────────────────────────────────────────────────────────────
 if not exist "Dependecies\webview2\" (
     echo  [2/3]  WebView2 SDK       downloading...
     curl -L -o Dependecies\webview2.zip "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2" --silent --show-error
@@ -85,7 +80,6 @@ if not exist "Dependecies\webview2\" (
     echo  [2/3]  WebView2 SDK       cached.
 )
 
-:: ── miniz ────────────────────────────────────────────────────────────────────
 if not exist "Dependecies\miniz\" (
     echo  [3/3]  miniz              downloading...
     curl -L -o Dependecies\miniz.zip "https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip" --silent --show-error
@@ -122,7 +116,6 @@ cl /EHsc /std:c++17 /O2 /W3 /nologo ^
 
 if errorlevel 1 goto :fail
 
-:: ── clean up linker artifacts ────────────────────────────────────────────────
 if exist launcher.obj  del /Q launcher.obj
 if exist webview.obj   del /Q webview.obj
 if exist miniz.obj     del /Q miniz.obj

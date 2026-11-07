@@ -1,22 +1,10 @@
-/*
- * launcher.c — Roblox Launcher (Pure C / Win32 / WebView2)
- *
- * Compiled as C (/TC), linked with webview.cc (compiled as C++).
- * The webview API is extern "C" so it links cleanly.
- */
-
 #include "launcher.h"
-
-/* webview C API — WEBVIEW_STATIC makes WEBVIEW_API = extern */
 #include <webview/api.h>
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Global state
- * ════════════════════════════════════════════════════════════════════════════ */
 static struct {
     webview_t        wv;
     AccountStore     accounts;
@@ -28,9 +16,6 @@ static struct {
 
 static HINTERNET g_session = NULL;
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Utility
- * ════════════════════════════════════════════════════════════════════════════ */
 static wchar_t *to_wide(const char *s) {
     int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
     wchar_t *w = (wchar_t *)malloc(n * sizeof(wchar_t));
@@ -124,9 +109,6 @@ static void url_encode(const char *in, char *out, size_t len) {
     out[j] = '\0';
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * HTTP (WinHTTP)
- * ════════════════════════════════════════════════════════════════════════════ */
 static void http_result_free(HttpResult *r) {
     if (r->data) { free(r->data); r->data = NULL; }
 }
@@ -222,9 +204,6 @@ static int http_post(const wchar_t *host, const wchar_t *path, const char *cooki
     return do_http(L"POST", host, path, cookie, csrf, out);
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Account persistence
- * ════════════════════════════════════════════════════════════════════════════ */
 static void accounts_add(AccountStore *s, const char *name, const char *cookie, const char *home) {
     int i;
     for (i = 0; i < s->count; i++) {
@@ -324,9 +303,6 @@ static void accounts_load(AccountStore *s, const char *path) {
     free(buf);
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Roblox API
- * ════════════════════════════════════════════════════════════════════════════ */
 static void fetch_place_name(long long place_id, char *out, size_t len) {
     char pid[32];
     wchar_t *wpid;
@@ -396,9 +372,6 @@ static int fetch_username(const char *cookie, char *out, size_t len) {
     return n > 0 ? 0 : -1;
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Version scanning
- * ════════════════════════════════════════════════════════════════════════════ */
 static void versions_scan(VersionList *vl, const char *base_dir) {
     char pattern[PATH_LEN], exe[PATH_LEN];
     wchar_t *wp;
@@ -427,9 +400,6 @@ static void versions_scan(VersionList *vl, const char *base_dir) {
     FindClose(h);
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Launch
- * ════════════════════════════════════════════════════════════════════════════ */
 static int roblox_launch(const char *exe, const char *ticket, long long place_id) {
     long long ts = (long long)time(NULL);
     long long tracker = ts * 1000 + (rand() % 999 + 1);
@@ -517,12 +487,8 @@ static int roblox_launch(const char *exe, const char *ticket, long long place_id
     return -1;
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * WebView helpers
- * ════════════════════════════════════════════════════════════════════════════ */
 static void wv_eval(const char *js) { webview_eval(g.wv, js); }
 
-/* ── get_state ── */
 static void cb_get_state(const char *seq, const char *req, void *arg) {
     char buf[JSON_BUF];
     int pos = 0, i;
@@ -550,7 +516,6 @@ static void cb_get_state(const char *seq, const char *req, void *arg) {
     webview_return(g.wv, seq, 0, buf);
 }
 
-/* ── add_account (threaded) ── */
 typedef struct { char seq[64]; char cookie[COOKIE_LEN]; char home[64]; } AddAccCtx;
 
 static DWORD WINAPI thread_add_account(LPVOID p) {
@@ -584,7 +549,6 @@ static void cb_add_account(const char *seq, const char *req, void *arg) {
     CloseHandle(t);
 }
 
-/* ── remove_account ── */
 static void cb_remove_account(const char *seq, const char *req, void *arg) {
     char name[NAME_LEN] = {0};
     (void)arg;
@@ -596,7 +560,6 @@ static void cb_remove_account(const char *seq, const char *req, void *arg) {
     webview_return(g.wv, seq, 0, "{\"ok\":true}");
 }
 
-/* ── set_home_place ── */
 static void cb_set_home_place(const char *seq, const char *req, void *arg) {
     char name[NAME_LEN]={0}, home[64]={0};
     int i;
@@ -615,7 +578,6 @@ static void cb_set_home_place(const char *seq, const char *req, void *arg) {
     webview_return(g.wv, seq, 0, "{\"ok\":true}");
 }
 
-/* ── versions_scan ── */
 static void cb_versions_scan(const char *seq, const char *req, void *arg) {
     EnterCriticalSection(&g.lock);
     versions_scan(&g.versions, g.versions_dir);
@@ -623,7 +585,6 @@ static void cb_versions_scan(const char *seq, const char *req, void *arg) {
     cb_get_state(seq, req, arg);
 }
 
-/* ── launch (threaded) ── */
 typedef struct { char account[NAME_LEN]; char place_id[64]; char version_path[PATH_LEN]; } LaunchCtx;
 
 static DWORD WINAPI thread_launch(LPVOID p) {
@@ -712,9 +673,6 @@ static void cb_launch(const char *seq, const char *req, void *arg) {
     webview_return(g.wv, seq, 0, "{\"ok\":true}");
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * HTML UI
- * ════════════════════════════════════════════════════════════════════════════ */
 static const char *HTML =
 "<!DOCTYPE html>"
 "<html><head><meta charset=\"UTF-8\"><title>Roblox Launcher</title>"
@@ -812,9 +770,6 @@ static const char *HTML =
 "loadState();"
 "</script></body></html>";
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Main
- * ════════════════════════════════════════════════════════════════════════════ */
 static void app_run(void) {
     char exe_dir[PATH_LEN], local[PATH_LEN];
     char *sl;

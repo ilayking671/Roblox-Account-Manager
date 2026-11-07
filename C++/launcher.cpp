@@ -1,7 +1,3 @@
-/*
- * launcher.cpp — Roblox Launcher (C++ / Win32 / WebView2)
- */
-
 #include "webview/webview.h"
 #include "miniz.h"
 #include "launcher.h"
@@ -10,9 +6,6 @@
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Global state
- * ════════════════════════════════════════════════════════════════════════════ */
 struct AppState {
     webview_t        wv;
     AccountStore     accounts;
@@ -24,9 +17,6 @@ struct AppState {
 static AppState    g_app;
 static HINTERNET   g_session = nullptr;
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Utility
- * ════════════════════════════════════════════════════════════════════════════ */
 static wchar_t *to_wide(const char *s) {
     int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
     wchar_t *w = (wchar_t *)malloc(n * sizeof(wchar_t));
@@ -117,9 +107,6 @@ static void url_encode(const char *in, char *out, size_t len) {
     out[j] = '\0';
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * HTTP (WinHTTP)
- * ════════════════════════════════════════════════════════════════════════════ */
 static void http_result_free(HttpResult *r) {
     if (r->data) { free(r->data); r->data = nullptr; }
 }
@@ -214,9 +201,6 @@ static int http_post(const wchar_t *host, const wchar_t *path, const char *cooki
     return do_http(L"POST", host, path, cookie, csrf, nullptr, 0, out);
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Account persistence
- * ════════════════════════════════════════════════════════════════════════════ */
 static void accounts_save(const AccountStore *s, const char *path) {
     FILE *f = fopen(path, "wb");
     if (!f) return;
@@ -271,9 +255,6 @@ static void accounts_load(AccountStore *s, const char *path) {
     free(buf);
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Roblox API
- * ════════════════════════════════════════════════════════════════════════════ */
 static void fetch_place_name(long long place_id, char *out, size_t len) {
     char pid[32]; snprintf(pid, sizeof(pid), "%lld", place_id);
     wchar_t *wpid = to_wide(pid);
@@ -335,9 +316,6 @@ int fetch_username(const char *cookie, char *out, size_t len) {
     return n > 0 ? 0 : -1;
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Version scanning
- * ════════════════════════════════════════════════════════════════════════════ */
 static void versions_scan(VersionList *vl, const char *base_dir) {
     vl->count = 0;
     char pattern[PATH_LEN];
@@ -363,9 +341,6 @@ static void versions_scan(VersionList *vl, const char *base_dir) {
     FindClose(h);
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * Launch
- * ════════════════════════════════════════════════════════════════════════════ */
 int roblox_launch(const char *exe, const char *ticket, long long place_id) {
     long long ts = (long long)time(nullptr);
     long long tracker = ts * 1000 + (rand() % 999 + 1);
@@ -409,7 +384,6 @@ int roblox_launch(const char *exe, const char *ticket, long long place_id) {
     char work_dir[PATH_LEN]; strncpy(work_dir, exe, sizeof(work_dir)-1);
     char *last_sep = strrchr(work_dir, '\\'); if (last_sep) *last_sep = '\0';
 
-    /* debug log */
     {
         char dbg[PATH_LEN];
         GetModuleFileNameA(nullptr, dbg, sizeof(dbg));
@@ -435,7 +409,6 @@ int roblox_launch(const char *exe, const char *ticket, long long place_id) {
     DWORD launch_err = ok ? 0 : GetLastError();
     free(wcmd); free(wworkdir);
 
-    /* append result to debug log */
     {
         char dbg[PATH_LEN];
         GetModuleFileNameA(nullptr, dbg, sizeof(dbg));
@@ -459,14 +432,10 @@ int roblox_launch(const char *exe, const char *ticket, long long place_id) {
     return -1;
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * WebView JS callback helpers
- * ════════════════════════════════════════════════════════════════════════════ */
 static void wv_eval(const char *js) {
     webview_eval(g_app.wv, js);
 }
 
-/* ── get_state ── */
 static void cb_get_state(const char *seq, const char *req, void *) {
     EnterCriticalSection(&g_app.lock);
     char buf[JSON_BUF]; int pos = 0;
@@ -491,7 +460,6 @@ static void cb_get_state(const char *seq, const char *req, void *) {
     webview_return(g_app.wv, seq, 0, buf);
 }
 
-/* ── add_account (async) ── */
 struct AddAccCtx { char seq[64]; char cookie[COOKIE_LEN]; char home[64]; };
 static DWORD WINAPI thread_add_account(LPVOID p) {
     auto *ctx = (AddAccCtx *)p;
@@ -520,7 +488,6 @@ static void cb_add_account(const char *seq, const char *req, void *) {
     CloseHandle(t);
 }
 
-/* ── remove_account ── */
 static void cb_remove_account(const char *seq, const char *req, void *) {
     char name[NAME_LEN] = {};
     json_str_arg(req, 0, name, sizeof(name)-1);
@@ -531,7 +498,6 @@ static void cb_remove_account(const char *seq, const char *req, void *) {
     webview_return(g_app.wv, seq, 0, "{\"ok\":true}");
 }
 
-/* ── set_home_place ── */
 static void cb_set_home_place(const char *seq, const char *req, void *) {
     char name[NAME_LEN]={}, home[64]={};
     json_str_arg(req, 0, name, sizeof(name)-1);
@@ -548,7 +514,6 @@ static void cb_set_home_place(const char *seq, const char *req, void *) {
     webview_return(g_app.wv, seq, 0, "{\"ok\":true}");
 }
 
-/* ── versions_scan ── */
 static void cb_versions_scan(const char *seq, const char *req, void *) {
     EnterCriticalSection(&g_app.lock);
     versions_scan(&g_app.versions, g_app.versions_dir);
@@ -556,7 +521,6 @@ static void cb_versions_scan(const char *seq, const char *req, void *) {
     cb_get_state(seq, req, nullptr);
 }
 
-/* ── launch (async) ── */
 struct LaunchCtx { char account[NAME_LEN]; char place_id[64]; char version_path[PATH_LEN]; };
 static DWORD WINAPI thread_launch(LPVOID p) {
     auto *ctx = (LaunchCtx *)p;
@@ -640,9 +604,6 @@ static void cb_launch(const char *seq, const char *req, void *) {
     webview_return(g_app.wv, seq, 0, "{\"ok\":true}");
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * HTML UI
- * ════════════════════════════════════════════════════════════════════════════ */
 static const char *HTML = R"HTML(
 <!DOCTYPE html>
 <html>
@@ -846,14 +807,10 @@ loadState();
 </html>
 )HTML";
 
-/* ════════════════════════════════════════════════════════════════════════════
- * App init + main
- * ════════════════════════════════════════════════════════════════════════════ */
 static void app_run() {
     srand((unsigned)time(nullptr));
     InitializeCriticalSection(&g_app.lock);
 
-    /* resolve paths */
     char exe_dir[PATH_LEN];
     GetModuleFileNameA(nullptr, exe_dir, sizeof(exe_dir));
     char *sl = strrchr(exe_dir, '\\'); if (sl) *(sl+1) = '\0';

@@ -14,7 +14,6 @@ echo   ROBLOX LAUNCHER  ^|  PURE C BUILD
 echo  ================================================================
 echo.
 
-:: ── auto-init VS x64 environment ────────────────────────────────────────────
 where cl >nul 2>&1
 if errorlevel 1 (
     echo  [..] cl.exe not in PATH -- locating Visual Studio...
@@ -41,7 +40,6 @@ if errorlevel 1 (
 )
 echo.
 
-:: ── deps ─────────────────────────────────────────────────────────────────────
 if not exist "deps\" mkdir deps
 
 if not exist "deps\webview\" (

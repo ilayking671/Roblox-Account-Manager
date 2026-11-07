@@ -1,6 +1,3 @@
-// launcher.zh - what the launcher keeps: the ZUST form of launcher.h.
-// ZUST txts and lists grow by themselves, so the C buffer sizes are gone.
-
 let MAX_ACCOUNTS = 64;
 let MAX_VERSIONS = 32;
 
