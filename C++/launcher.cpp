@@ -1,6 +1,6 @@
 #include "webview/webview.h"
 #include "miniz.h"
-#include "launcher.h"
+#include "launcher.hpp"
 
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ole32.lib")
