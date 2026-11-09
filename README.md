@@ -1,3 +1,3 @@
 Python Version Made by @juht
 
-Zust Version Made By Owner Of Zust
+Zust Version Made By Its Owner
